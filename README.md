@@ -1,3 +1,17 @@
+# Wokwi Library List
+# See https://docs.wokwi.com/guides/libraries
+
+U8glib
+Adafruit GFX Library
+ssd1306
+TM1637
+Adafruit SSD1306
+
+
+
+
+
+
 ![Ekran görüntüsü 2025-02-10 202049](https://github.com/user-attachments/assets/9de9eb89-ab4a-4ac5-af01-9783908640a0)
 
 
