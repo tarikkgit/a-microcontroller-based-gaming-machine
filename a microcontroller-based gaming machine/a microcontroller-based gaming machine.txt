@@ -1,0 +1,403 @@
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+
+#define OLED_RESET -1 
+#define SCREEN_ADDRESS 0x3C
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define BRICK_ROWS 4 // Tuğla satır sayısı
+#define BRICK_COLS 6 // Tuğla sütun sayısı
+#define BRICK_WIDTH (SCREEN_WIDTH / BRICK_COLS)
+#define BRICK_HEIGHT 8
+#define LDR A0
+Adafruit_SSD1306 oled(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+int bonusX, bonusY;
+bool bonusActive = false;
+int pinsensor = A0;
+int pinled=2;
+int led2=4;
+int lux;
+int led = 7; // LED pini
+int btnUp = 5; // Yukarı buton pini
+int btnDown = 13; // Aşağı buton pini
+int btnSelect = 6; // Seçme buton pini
+int A = 8;
+int B = 9;
+int C = 3;
+int D = 4;
+int E = 5;
+int F = 7;
+int G = 6;
+int DP = 2;
+int paletPosition; // Palet pozisyonu
+int ballX, ballY; // Topun konumu
+int ballSpeedX = 1; // Topun x yönündeki hızı
+int ballSpeedY = 1; // Topun y yönündeki hızı
+bool bricks[BRICK_ROWS][BRICK_COLS]; // Tuğlaların durumu
+
+int menuSelection = 1; // Başlangıçta ilk menü öğesi seçili
+int lives = 3; // Başlangıçta 3 can
+int destroyedBricks = 0; // Kırılan tuğla sayısı
+
+void setup() {
+    Serial.begin(9600);
+    pinMode(pinsensor, INPUT); // Potansiyometre pinini giriş olarak ayarla
+    pinMode(btnUp, INPUT_PULLUP);
+    pinMode(btnDown, INPUT_PULLUP);
+    pinMode(btnSelect, INPUT_PULLUP);
+    pinMode(led, OUTPUT); // LED pinini çıkış olarak ayarla
+    pinMode(led2, OUTPUT); // LED pinini çıkış olarak ayarla
+    pinMode(pinled, OUTPUT); // LED pinini çıkış olarak ayarla
+
+    if (!oled.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+        Serial.println(F("failed to start SSD1306 OLED"));
+        while (1);
+    }
+
+    delay(2000);
+    oled.clearDisplay();
+
+    oled.setTextSize(1);
+    oled.setTextColor(WHITE);
+
+    // Oyun alanını ve tuğlaları başlat
+    initializeBricks();
+
+    // Palet ve topun başlangıç pozisyonunu ayarla
+    paletPosition = SCREEN_WIDTH / 2;
+    ballX = SCREEN_WIDTH / 2;
+    ballY = SCREEN_HEIGHT / 2;
+
+    
+    // Ekranı güncelle
+    oled.display();
+    
+}
+
+bool gameStarted = false; // Oyunun başladığını belirten bayrak
+void loop() {
+  lux=analogRead(A0);
+  Serial.println(analogRead(LDR));
+    // Menüyü göster
+    displayMainMenu();
+
+    // Menü seçimini oku
+    readMenuSelection();
+
+    // Seçilen seçeneği işle
+    if (menuSelection == 1 && !gameStarted) {
+        // Oyunu başlat
+        playGame();
+    } else if (menuSelection == 2) {
+        // Çıkışı seç
+        oled.clearDisplay(); // Ekranı temizle
+        oled.display(); // Ekranı güncelle
+        delay(500); // Kullanıcıya ekranın temizlendiğini görmesi için kısa bir gecikme
+        return;
+    }
+}
+
+void displayMainMenu() {
+    oled.clearDisplay();
+    oled.setCursor(0, 0);
+    if (menuSelection == 1) {
+        oled.println("* Baslat");
+        oled.println("  Cikis");
+    } else if (menuSelection == 2) {
+        oled.println("  Baslat");
+        oled.println("* Cikis");
+        
+    }
+    oled.display(); // Ekranı güncelle
+}
+
+void readMenuSelection() {
+    while (true) {
+        if (digitalRead(btnDown) == LOW) {
+            menuSelection = (menuSelection % 2) + 1; // Menü seçimini değiştir
+            displayMainMenu(); // Yeni seçimi göster
+            delay(200); // Tuş gecikmesi
+        } else if (digitalRead(btnUp) == LOW) {
+            menuSelection = (menuSelection == 1) ? 2 : 1; // Menü seçimini değiştir
+            displayMainMenu(); // Yeni seçimi göster
+            delay(200); // Tuş gecikmesi
+        } else if (digitalRead(btnSelect) == LOW) {
+            if (menuSelection == 2) {
+                oled.clearDisplay();
+                oled.setCursor(0, (SCREEN_HEIGHT - 10) / 2);
+                oled.println("Oyunumuza gosterdiginiz ilgi icin tesekkurler!");
+                oled.display();
+                delay(2000); // Mesajı bir süre göstermek için bekle
+                return; // Çıkışı onayla
+            } else {
+                return; // Oyunu başlat
+            }
+        }
+    }
+}
+bool checkBricksRemaining() {
+    for (int i = 0; i < BRICK_ROWS; i++) {
+        for (int j = 0; j < BRICK_COLS; j++) {
+            if (bricks[i][j]) {
+                return true; // Hala tuğla var
+            }
+        }
+    }
+    return false; // Tuğla kalmadı
+}
+
+void initializeBricks() {
+    // Tuğlaların durumunu başlangıçta ayarla
+    for (int i = 0; i < BRICK_ROWS; i++) {
+        for (int j = 0; j < BRICK_COLS; j++) {
+            // Rastgele bir sayı üret ve bu sayının belirli bir eşik değerden büyük olması durumunda tuğlayı aktif hale getir
+            if (random(100) > 60) { // Örnek olarak %40 olasılıkla tuğla oluşturulabilir
+                bricks[i][j] = true; // Tuğlanın var olduğunu belirt
+            } else {
+                bricks[i][j] = false; // Tuğlanın olmadığını belirt
+            }
+        }
+    }
+}
+void drawBricks() {
+    // Tuğlaları çiz
+    for (int i = 0; i < BRICK_ROWS; i++) {
+        for (int j = 0; j < BRICK_COLS; j++) {
+            if (bricks[i][j]) {
+                if (lux < 500) {
+                    // Düşük ışık seviyesinde arka plan beyaz, tuğlalar siyah
+                    oled.fillRect(j * BRICK_WIDTH, i * BRICK_HEIGHT, BRICK_WIDTH, BRICK_HEIGHT, BLACK);
+                } else {
+                    // Yüksek ışık seviyesinde arka plan siyah, tuğlalar beyaz
+                    oled.fillRect(j * BRICK_WIDTH, i * BRICK_HEIGHT, BRICK_WIDTH, BRICK_HEIGHT, WHITE);
+                }
+            }
+        }
+    }
+}
+
+
+void checkCollisionWithBricks() {
+    // Topun tuğlalara çarpma kontrolü
+    int ballGridX = ballX / BRICK_WIDTH; // Topun bulunduğu sütun
+    int ballGridY = ballY / BRICK_HEIGHT; // Topun bulunduğu satır
+
+    if (ballGridX >= 0 && ballGridX < BRICK_COLS && ballGridY >= 0 && ballGridY < BRICK_ROWS) {
+        if (bricks[ballGridY][ballGridX]) {
+            bricks[ballGridY][ballGridX] = false; // Tuğlayı kaldır
+            ballSpeedY = -ballSpeedY; // Yönü değiştir
+            destroyedBricks++; // Kırılan tuğla sayısını artır
+
+            // %10 olasılıkla bonus objesi oluştur
+            if (random(100) < 10) {
+                bonusX = ballGridX * BRICK_WIDTH + BRICK_WIDTH / 2;
+                bonusY = ballGridY * BRICK_HEIGHT + BRICK_HEIGHT;
+                bonusActive = true;
+            }
+        }
+    }
+}
+void updateBonus() {
+    if (bonusActive) {
+        // Bonus objesini aşağı indir
+        bonusY++;
+
+        // Bonus objesinin paletle çarpma kontrolü
+        if (bonusY >= SCREEN_HEIGHT - 10 && bonusX >= paletPosition && bonusX <= paletPosition + 20) {
+            bonusActive = false; // Bonus objesini kaldır
+
+            // Can sayısını artır (eğer maksimum değilse)
+            if (lives < 3) {
+                lives++;
+
+                // Can sayısına göre LED'leri güncelle
+                if (lives == 3) {
+                    digitalWrite(pinled, HIGH); // LED 3'ü yak
+                } else if (lives == 2) {
+                    digitalWrite(led, HIGH); // LED 2'yi yak
+                }
+            }
+        } else {
+            // Bonus objesi paletle çarpışmadıysa, ancak can sayısı 3 ise LED 3'ü açık bırak
+            if (lives == 3) {
+                digitalWrite(pinled, HIGH);
+            }
+        }
+
+        // Can sayısına göre LED'leri kapat
+        if (lives < 3) {
+            digitalWrite(pinled, LOW); // LED 3'ü kapat
+        }
+        if (lives < 2) {
+            digitalWrite(led, LOW); // LED 2'yi kapat
+        }
+    }
+}
+
+void drawGameArea() {
+    // Oyun alanını çiz
+    if (lux < 500) {
+        // Düşük ışık seviyesinde arka plan beyaz
+        oled.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, WHITE);
+        // Paleti siyah olarak çiz
+        oled.fillRect(paletPosition, SCREEN_HEIGHT - 10, 20, 5, BLACK);
+        // Topu siyah olarak çiz
+        oled.fillCircle(ballX, ballY, 3, BLACK);
+    } if(lux>=500) {
+        // Yüksek ışık seviyesinde arka plan siyah
+        oled.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, BLACK);
+        // Paleti beyaz olarak çiz
+        oled.fillRect(paletPosition, SCREEN_HEIGHT - 10, 20, 5, WHITE);
+        // Topu beyaz olarak çiz
+        oled.fillCircle(ballX, ballY, 3, WHITE);
+    }
+
+    // Oyun alanı çizgilerini beyaz renkle çiz
+    oled.drawLine(0, 0, SCREEN_WIDTH - 1, 0, WHITE); // Üst sınırlar
+    oled.drawLine(0, SCREEN_HEIGHT - 1, SCREEN_WIDTH - 1, SCREEN_HEIGHT - 1, WHITE); // Alt sınırlar
+    oled.drawLine(0, 0, 0, SCREEN_HEIGHT - 1, WHITE); // Sol sınırlar
+    oled.drawLine(SCREEN_WIDTH - 1, 0, SCREEN_WIDTH - 1, SCREEN_HEIGHT - 1, WHITE); // Sağ sınırlar
+}
+
+
+int startingLives = 3; // Başlangıçta can sayısı
+void resetGame() {
+  
+    // Oyunu yeniden başlat
+    paletPosition = SCREEN_WIDTH / 2;
+    ballX = SCREEN_WIDTH / 2;
+    ballY = SCREEN_HEIGHT / 2;
+    ballSpeedX = 1;
+    ballSpeedY = 1;
+    initializeBricks();
+    lives = startingLives;
+    if(lives==3){
+      destroyedBricks = 0;
+    }
+     // Kırılan tuğla sayısını sıfırla
+    // Canları yeniden ayarla
+   
+    // Puanı sıfırla sadece canlar bitince
+    
+}
+
+
+void drawBonus() {
+    if(bonusActive){
+if (lux < 500) {
+        // Düşük ışık seviyesinde arka plan beyaz, can nesnesi siyah
+        oled.fillCircle(bonusX, bonusY, 3, BLACK);
+    } else {
+        // Yüksek ışık seviyesinde arka plan siyah, can nesnesi beyaz
+        oled.fillCircle(bonusX, bonusY, 3, WHITE);
+    }
+    }
+    
+}
+
+void playGame() {
+    gameStarted = true;
+    // İlk durumda LED'leri yak
+    digitalWrite(pinled, HIGH); // pinled = 2
+    digitalWrite(led2, HIGH);   // led2 = 4
+    digitalWrite(led, HIGH);    // led = 7
+
+    // Oyun devam ederken
+    while (gameStarted) {
+        oled.clearDisplay(); // Ekranı temizle
+
+        // Potansiyometre değerini oku ve paleti hareket ettir
+        int potValue = analogRead(pinsensor);
+        paletPosition = map(potValue, 0, 1023, 0, SCREEN_WIDTH - 20);
+
+        // Topun hareketini güncelle
+        ballX += ballSpeedX;
+        ballY += ballSpeedY;
+
+        // Topun ekran sınırlarına çarpma kontrolü
+        if (ballX <= 0 || ballX >= SCREEN_WIDTH) {
+            ballSpeedX = -ballSpeedX; // Yönü değiştir
+        }
+        if (ballY <= 0) {
+            ballSpeedY = -ballSpeedY; // Yönü değiştir
+        }
+
+        // Topun palet ile çarpma kontrolü
+        if (ballY >= SCREEN_HEIGHT - 10 && ballX >= paletPosition && ballX <= paletPosition + 20) {
+            ballSpeedY = -ballSpeedY; // Yönü değiştir
+        }
+
+        // Topun tuğlalara çarpma kontrolü
+        checkCollisionWithBricks();
+        updateBonus();
+        // Topun zemine çarpma kontrolü
+        if (ballY >= SCREEN_HEIGHT) {
+            // Canı azalt
+            lives--;
+
+            if(lives==2)
+            {
+               digitalWrite(pinled, LOW); // pinled = 2
+            }
+            if(lives==1)
+            {
+               digitalWrite(led, LOW); 
+            }
+            if(lives==0)
+            {
+               digitalWrite(led2, LOW); 
+            }
+
+            if (lives == 0) {
+                // Tüm canlar bitti, oyunu yeniden başlat
+                oled.clearDisplay(); // Ekranı temizle
+                oled.setCursor(0, 0);
+                oled.println("Oyun bitti!");
+                oled.println("Puan: " + String(destroyedBricks)); // Kırılan tuğla sayısını ekrana yazdır
+                oled.display();
+                delay(3000); // 3 saniye bekle
+                resetGame();
+                gameStarted = false; // Oyun bitti, bayrağı false yap
+                break;
+            }
+
+            // Yeniden başlamak için bir süre bekle
+            delay(1000);
+            // Ekranı güncelle
+            oled.display();
+            // Topu başlangıç konumuna geri al
+            ballX = SCREEN_WIDTH / 2;
+            ballY = SCREEN_HEIGHT / 2;
+        }
+       
+        // Oyun alanını ve tuğlaları çiz
+        drawGameArea();
+        drawBricks();
+        drawBonus();
+        
+        // Tuğlalar temizlendi mi kontrol et
+        if (!checkBricksRemaining()) {
+            // Tuğlalar temizlendi, topun hızını artır
+            float speedMultiplier = 1.2;
+            ballSpeedX *= speedMultiplier;
+            ballSpeedY *= speedMultiplier;
+            resetGame();
+        }
+        
+        
+
+        // Ekranı güncelle
+        oled.display();
+        
+        // Biraz gecikme ekle
+        delay(10);
+    }
+
+    // Canlar bittiğinde menüye geri dön
+    menuSelection = 1;
+    displayMainMenu();
+}
+
+
+
